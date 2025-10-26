@@ -70,9 +70,8 @@ class VariationalTrader {
                 // 第一步：确保货币单位是美元($)
                 await this.ensureCurrencyIsUSD();
                 
-                // 第二步：使用XPath精准定位开仓金额输入框并设置金额
-                const amountXPath = '/html/body/div/div[1]/div[2]/div/div/div[5]/div[1]/div/span/div/div/input';
-                const amountInput = this.getElementByXPath(amountXPath);
+                // 第二步：使用data-testid精准定位开仓金额输入框并设置金额
+                const amountInput = document.querySelector('[data-testid="quantity-input"]');
                 
                 if (amountInput) {
                     console.log('找到开仓金额输入框:', amountInput);
@@ -115,25 +114,23 @@ class VariationalTrader {
                 console.log('检查货币单位...');
                 
                 // 检查当前货币单位是否为美元($)
-                const currencySpanXPath = '/html/body/div/div[1]/div[2]/div/div/div[5]/div[1]/div/span/button/span';
-                const currencySpan = this.getElementByXPath(currencySpanXPath);
+                const currencyButton = document.querySelector('[data-testid="input-mode-toggle"]');
                 
-                if (currencySpan) {
-                    const currentCurrency = currencySpan.textContent.trim();
-                    console.log(`当前货币单位: "${currentCurrency}"`);
-                    
-                    if (currentCurrency === '$') {
-                        console.log('货币单位已经是美元($)，无需切换');
-                        resolve();
-                        return;
-                    } else {
-                        console.log(`货币单位不是美元($)，当前是"${currentCurrency}"，需要切换`);
+                if (currencyButton) {
+                    // 获取货币显示文本
+                    const currencySpan = currencyButton.querySelector('span');
+                    if (currencySpan) {
+                        const currentCurrency = currencySpan.textContent.trim();
+                        console.log(`当前货币单位: "${currentCurrency}"`);
                         
-                        // 点击货币切换按钮
-                        const currencyButtonXPath = '/html/body/div/div[1]/div[2]/div/div/div[5]/div[1]/div/span/button';
-                        const currencyButton = this.getElementByXPath(currencyButtonXPath);
-                        
-                        if (currencyButton) {
+                        if (currentCurrency === '$') {
+                            console.log('货币单位已经是美元($)，无需切换');
+                            resolve();
+                            return;
+                        } else {
+                            console.log(`货币单位不是美元($)，当前是"${currentCurrency}"，需要切换到美元($)`);
+                            
+                            // 点击货币切换按钮
                             console.log('找到货币切换按钮，点击切换到美元($)');
                             currencyButton.click();
                             
@@ -142,35 +139,14 @@ class VariationalTrader {
                                 console.log('货币单位已切换到美元($)');
                                 resolve();
                             }, 1000);
-                        } else {
-                            console.log('未找到货币切换按钮，继续使用当前货币');
-                            resolve();
-                        }
-                    }
-                } else {
-                    // 如果找不到span，尝试找svg
-                    const currencySvgXPath = '/html/body/div/div[1]/div[2]/div/div/div[5]/div[1]/div/span/button/svg';
-                    const currencySvg = this.getElementByXPath(currencySvgXPath);
-                    
-                    if (currencySvg) {
-                        console.log('找到货币切换按钮(SVG)，点击切换到美元($)');
-                        const currencyButton = currencySvg.closest('button');
-                        if (currencyButton) {
-                            currencyButton.click();
-                            
-                            // 等待切换完成
-                            setTimeout(() => {
-                                console.log('货币单位已切换到美元($)');
-                                resolve();
-                            }, 1000);
-                        } else {
-                            console.log('无法找到按钮元素，继续使用当前货币');
-                            resolve();
                         }
                     } else {
-                        console.log('未找到货币单位显示元素，继续使用当前货币');
+                        console.log('未找到货币显示文本，继续使用当前货币');
                         resolve();
                     }
+                } else {
+                    console.log('未找到货币切换按钮，继续使用当前货币');
+                    resolve();
                 }
                 
             } catch (error) {
@@ -200,45 +176,26 @@ class VariationalTrader {
             try {
                 console.log(`尝试查找买入按钮 (第${attempt}次)...`);
                 
-                // 第一步：使用XPath精准定位买入BTC按钮
-                const buyButtonXPath = '/html/body/div/div[1]/div[2]/div/div/button';
-                let buyButton = this.getElementByXPath(buyButtonXPath);
+                // 第一步：使用data-testid精准定位买入BTC按钮
+                let buyButton = document.querySelector('[data-testid="submit-button"]');
                 
                 if (!buyButton) {
-                    console.log('XPath未找到买入按钮，尝试CSS选择器');
-                    // 如果XPath没找到，回退到CSS选择器
-                    const selectors = [
-                        'button[data-testid="submit-button"]',
-                        'button:contains("输入大小")',
-                        'button:contains("买 BTC")',
-                        'button:contains("买入")'
-                    ];
+                    console.log('data-testid未找到买入按钮，尝试查找所有按钮');
+                    // 如果data-testid没找到，查找所有按钮并检查文本
+                    const allButtons = document.querySelectorAll('button');
+                    console.log(`页面中共有 ${allButtons.length} 个按钮`);
                     
-                    for (const selector of selectors) {
-                        buyButton = document.querySelector(selector);
-                        if (buyButton) {
-                            console.log(`使用CSS选择器找到按钮: ${selector}`);
+                    for (let button of allButtons) {
+                        const text = button.textContent.trim();
+                        console.log(`按钮文本: "${text}"`);
+                        if (text.includes('买 BTC') || text.includes('买入') || text.includes('输入大小')) {
+                            buyButton = button;
+                            console.log('通过文本匹配找到按钮');
                             break;
                         }
                     }
-                    
-                    if (!buyButton) {
-                        // 如果没找到，尝试查找所有按钮并检查文本
-                        const allButtons = document.querySelectorAll('button');
-                        console.log(`页面中共有 ${allButtons.length} 个按钮`);
-                        
-                        for (let button of allButtons) {
-                            const text = button.textContent.trim();
-                            console.log(`按钮文本: "${text}"`);
-                            if (text.includes('输入大小') || text.includes('买 BTC') || text.includes('买入')) {
-                                buyButton = button;
-                                console.log('通过文本匹配找到按钮');
-                                break;
-                            }
-                        }
-                    }
                 } else {
-                    console.log('使用XPath成功找到买入BTC按钮');
+                    console.log('使用data-testid成功找到买入BTC按钮');
                 }
                 
                 if (!buyButton) {
@@ -304,45 +261,60 @@ class VariationalTrader {
             try {
                 console.log('执行平仓操作:', request);
                 
-                // 第一步：使用XPath精准定位平仓按钮
-                const xpath = '/html/body/div/div[1]/div[1]/div[3]/div[2]/div/div/svelte-virtual-list-viewport/svelte-virtual-list-contents/svelte-virtual-list-row/div/div[10]/button[2]';
-                let closeButton = this.getElementByXPath(xpath);
+                // 第一步：使用data-testid定位仓位表格行，然后找到关闭按钮
+                let closeButton = null;
+                
+                // 方法1：查找所有按钮并检查文本内容
+                const allButtons = document.querySelectorAll('button');
+                for (let button of allButtons) {
+                    const text = button.textContent.trim();
+                    if (text === '关闭') {
+                        closeButton = button;
+                        console.log('通过文本匹配找到关闭按钮');
+                        break;
+                    }
+                }
                 
                 if (!closeButton) {
-                    // 如果XPath没找到，回退到CSS选择器
-                    console.log('XPath未找到按钮，尝试CSS选择器');
-                    const closeSelectors = [
-                        'button[class*="border-azure"][class*="text-azure"]',
-                        'button:contains("交易")',
-                        'button:contains("关闭")',
-                        'button:contains("平仓")'
-                    ];
+                    console.log('直接查找关闭按钮失败，尝试通过仓位表格行查找');
                     
-                    for (const selector of closeSelectors) {
-                        closeButton = document.querySelector(selector);
-                        if (closeButton) {
-                            console.log(`使用CSS选择器找到平仓按钮: ${selector}`);
-                            break;
-                        }
-                    }
+                    // 方法2：通过仓位表格行查找关闭按钮
+                    const positionRows = document.querySelectorAll('[data-testid="positions-table-row"]');
+                    console.log(`找到 ${positionRows.length} 个仓位行`);
                     
-                    if (!closeButton) {
-                        // 如果没找到，尝试查找所有按钮并检查文本
-                        const allButtons = document.querySelectorAll('button');
-                        console.log(`页面中共有 ${allButtons.length} 个按钮`);
-                        
-                        for (let button of allButtons) {
+                    for (const row of positionRows) {
+                        // 在仓位行中查找所有按钮并检查文本
+                        const buttons = row.querySelectorAll('button');
+                        for (let button of buttons) {
                             const text = button.textContent.trim();
-                            console.log(`按钮文本: "${text}"`);
-                            if (text.includes('交易') || text.includes('关闭') || text.includes('平仓')) {
+                            if (text === '关闭') {
                                 closeButton = button;
-                                console.log('通过文本匹配找到平仓按钮');
+                                console.log('在仓位表格行中找到关闭按钮');
                                 break;
                             }
                         }
+                        if (closeButton) break;
                     }
-                } else {
-                    console.log('使用XPath成功找到平仓按钮');
+                }
+                
+                if (!closeButton) {
+                    // 方法3：查找所有包含特定样式的按钮
+                    const closeSelectors = [
+                        'button[class*="border-azure"][class*="text-azure"]'
+                    ];
+                    
+                    for (const selector of closeSelectors) {
+                        const buttons = document.querySelectorAll(selector);
+                        for (let button of buttons) {
+                            const text = button.textContent.trim();
+                            if (text === '关闭' || text === '平仓' || text === '交易') {
+                                closeButton = button;
+                                console.log(`使用样式选择器找到关闭按钮: ${selector}`);
+                                break;
+                            }
+                        }
+                        if (closeButton) break;
+                    }
                 }
                 
                 if (!closeButton) {
@@ -363,23 +335,12 @@ class VariationalTrader {
                 
                 // 第二步：等待弹出窗口出现并点击确认平仓按钮
                 setTimeout(() => {
-                    const confirmSelectors = [
-                        'button[data-testid="close-position-button"]',
-                        'button:contains("卖出平仓")',
-                        'button:contains("确认平仓")'
-                    ];
-                    
-                    let confirmButton = null;
-                    for (const selector of confirmSelectors) {
-                        confirmButton = document.querySelector(selector);
-                        if (confirmButton) {
-                            console.log(`使用选择器找到确认按钮: ${selector}`);
-                            break;
-                        }
-                    }
+                    // 使用data-testid精准定位确认平仓按钮
+                    let confirmButton = document.querySelector('[data-testid="close-position-button"]');
                     
                     if (!confirmButton) {
-                        // 如果没找到，尝试查找所有按钮并检查文本
+                        console.log('data-testid未找到确认按钮，尝试查找所有按钮');
+                        // 如果data-testid没找到，查找所有按钮并检查文本
                         const allConfirmButtons = document.querySelectorAll('button');
                         console.log(`弹出窗口中共有 ${allConfirmButtons.length} 个按钮`);
                         
@@ -392,6 +353,8 @@ class VariationalTrader {
                                 break;
                             }
                         }
+                    } else {
+                        console.log('使用data-testid成功找到确认平仓按钮');
                     }
                     
                     if (!confirmButton) {
