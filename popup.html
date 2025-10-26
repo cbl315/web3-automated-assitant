@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web3 Trading Assistant</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <h2>自动交易助手</h2>
+        
+        <!-- 交易所信息 -->
+        <div class="section">
+            <div class="exchange-info">
+                <h3>Variational Omni</h3>
+                <p class="exchange-url">omni.variational.io</p>
+            </div>
+        </div>
+
+        <!-- 交易对设置 -->
+        <div class="section">
+            <label for="symbol">交易对:</label>
+            <input type="text" id="symbol" placeholder="例如: BTCUSDT" value="BTCUSDT">
+        </div>
+
+        <!-- 自动交易 -->
+        <div class="section">
+            <h3>自动交易</h3>
+            <div class="auto-trade">
+                <label for="autoTradeAmount">开仓金额:</label>
+                <input type="number" id="autoTradeAmount" placeholder="金额" step="0.01" min="0" value="100">
+                <button id="autoTradeToggle" class="btn btn-success">开始自动交易</button>
+                <div class="auto-trade-info">
+                    <div id="tradeStatus">状态: 未开始</div>
+                    <div id="tradeCount">交易次数: 0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 状态显示 -->
+        <div class="status-section">
+            <div id="status" class="status">就绪</div>
+            <div id="lastPrice" class="price-info">最新价格: --</div>
+        </div>
+
+        <!-- 设置 -->
+        <div class="section">
+            <h3>设置</h3>
+            <label>
+                <input type="checkbox" id="autoConfirm"> 自动确认交易
+            </label>
+            <label>
+                <input type="checkbox" id="soundAlert"> 声音提醒
+            </label>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

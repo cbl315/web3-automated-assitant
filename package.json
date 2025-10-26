@@ -1,0 +1,36 @@
+{
+  "name": "web3-automated-trading-assistant",
+  "version": "1.0.0",
+  "description": "浏览器插件 - Web3自动交易助手，支持市价开单和平仓",
+  "main": "background.js",
+  "scripts": {
+    "build": "echo 'Building extension package...'",
+    "pack": "node scripts/simple-pack.js",
+    "pack:zip": "zip -r web3-trading-assistant.zip . -x '*.git*' 'node_modules/*' '*.DS_Store' 'scripts/*'",
+    "pack:manual": "echo '手动打包: 在 chrome://extensions/ 中点击打包扩展程序'",
+    "dev": "echo '开发模式: 在 chrome://extensions/ 中加载已解压的扩展程序'",
+    "clean": "rm -f *.crx *.pem *.zip"
+  },
+  "keywords": [
+    "chrome-extension",
+    "web3",
+    "trading",
+    "crypto",
+    "automation",
+    "binance",
+    "okx",
+    "huobi"
+  ],
+  "author": "Web3 Trading Assistant Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cbl315/web3-automated-assitant"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "browserslist": [
+    "last 2 Chrome versions"
+  ]
+}
