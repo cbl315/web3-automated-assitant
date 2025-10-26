@@ -25,6 +25,7 @@ class VariationalTrader {
                     this.executeVariationalOrder(request, sendResponse);
                     return true; // 保持消息通道开放
                     
+                    
                 case 'getCurrentPrice':
                     this.getCurrentPrice(request, sendResponse);
                     return true;
@@ -70,7 +71,12 @@ class VariationalTrader {
                 // 第一步：确保货币单位是美元($)
                 await this.ensureCurrencyIsUSD();
                 
-                // 第二步：使用data-testid精准定位开仓金额输入框并设置金额
+                // 第二步：根据开仓方向点击对应的价格按钮
+                if (request.direction) {
+                    await this.clickDirectionButton(request.direction);
+                }
+                
+                // 第三步：使用data-testid精准定位开仓金额输入框并设置金额
                 const amountInput = document.querySelector('[data-testid="quantity-input"]');
                 
                 if (amountInput) {
@@ -90,14 +96,14 @@ class VariationalTrader {
                         
                         console.log(`已设置开仓金额: ${request.amount}`);
                         
-                        // 第三步：查找并点击买入BTC按钮
-                        this.clickBuyButton(request, resolve, reject);
+                        // 第四步：查找并点击买入/卖出BTC按钮
+                        this.clickTradeButton(request, resolve, reject);
                         
                     }, 500);
                 } else {
-                    console.log('未找到开仓金额输入框，直接点击买入按钮');
-                    // 如果找不到输入框，直接点击买入按钮
-                    this.clickBuyButton(request, resolve, reject);
+                    console.log('未找到开仓金额输入框，直接点击交易按钮');
+                    // 如果找不到输入框，直接点击交易按钮
+                    this.clickTradeButton(request, resolve, reject);
                 }
                 
             } catch (error) {
@@ -157,17 +163,154 @@ class VariationalTrader {
         });
     }
 
-    // 点击买入按钮的通用逻辑
-    clickBuyButton(request, resolve, reject) {
+    // 点击开仓方向按钮
+    async clickDirectionButton(direction) {
+        return new Promise((resolve, reject) => {
+            try {
+                console.log(`点击开仓方向按钮: ${direction}`);
+                
+                let directionButton = null;
+                
+                if (direction === 'BUY') {
+                    // 查找卖价显示元素的上一级button
+                    const askPriceSpan = document.querySelector('[data-testid="ask-price-display"]');
+                    if (askPriceSpan) {
+                        directionButton = askPriceSpan.closest('button');
+                        console.log('找到卖价按钮:', directionButton);
+                    }
+                } else if (direction === 'SELL') {
+                    // 查找买价显示元素的上一级button
+                    const bidPriceSpan = document.querySelector('[data-testid="bid-price-display"]');
+                    if (bidPriceSpan) {
+                        directionButton = bidPriceSpan.closest('button');
+                        console.log('找到买价按钮:', directionButton);
+                    }
+                }
+                
+                if (!directionButton) {
+                    console.log('未找到方向按钮，继续执行开仓');
+                    resolve();
+                    return;
+                }
+                
+                // 点击方向按钮
+                directionButton.click();
+                console.log(`已点击${direction === 'BUY' ? '卖价' : '买价'}按钮`);
+                
+                // 等待方向切换完成
+                setTimeout(() => {
+                    console.log('方向切换完成');
+                    resolve();
+                }, 500);
+                
+            } catch (error) {
+                console.error('点击方向按钮错误:', error);
+                // 不阻止交易继续，只是记录错误
+                resolve();
+            }
+        });
+    }
+
+    // 点击交易按钮的通用逻辑
+    clickTradeButton(request, resolve, reject) {
         try {
             // 等待按钮可用并点击
-            this.waitForButtonAvailable(request, resolve, reject);
+            this.waitForTradeButtonAvailable(request, resolve, reject);
         } catch (error) {
             reject(error);
         }
     }
 
-    // 等待按钮可用并点击
+    // 等待交易按钮可用并点击
+    async waitForTradeButtonAvailable(request, resolve, reject) {
+        const maxRetries = 10; // 最大重试次数
+        const retryInterval = 500; // 重试间隔(毫秒)
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                console.log(`尝试查找交易按钮 (第${attempt}次)...`);
+                
+                // 第一步：使用data-testid精准定位交易按钮
+                let tradeButton = document.querySelector('[data-testid="submit-button"]');
+                
+                if (!tradeButton) {
+                    console.log('data-testid未找到交易按钮，尝试查找所有按钮');
+                    // 如果data-testid没找到，查找所有按钮并检查文本
+                    const allButtons = document.querySelectorAll('button');
+                    console.log(`页面中共有 ${allButtons.length} 个按钮`);
+                    
+                    for (let button of allButtons) {
+                        const text = button.textContent.trim();
+                        console.log(`按钮文本: "${text}"`);
+                        if (text.includes('买 BTC') || text.includes('卖 BTC') || text.includes('买入') || text.includes('卖出') || text.includes('输入大小')) {
+                            tradeButton = button;
+                            console.log('通过文本匹配找到按钮');
+                            break;
+                        }
+                    }
+                } else {
+                    console.log('使用data-testid成功找到交易按钮');
+                }
+                
+                if (!tradeButton) {
+                    if (attempt === maxRetries) {
+                        throw new Error('未找到交易按钮。请确保在Variational Omni交易页面，并且页面已完全加载。');
+                    } else {
+                        console.log(`未找到按钮，等待${retryInterval}ms后重试`);
+                        await new Promise(resolve => setTimeout(resolve, retryInterval));
+                        continue;
+                    }
+                }
+
+                // 检查按钮文本是否匹配
+                const buttonText = tradeButton.textContent.trim();
+                console.log(`找到按钮，文本内容: "${buttonText}"`);
+                
+                // 检查按钮是否可用
+                if (tradeButton.disabled) {
+                    console.log(`按钮当前不可用（被禁用），等待${retryInterval}ms后重试`);
+                    if (attempt === maxRetries) {
+                        throw new Error('交易按钮长时间不可用，请检查交易条件是否满足。');
+                    }
+                    await new Promise(resolve => setTimeout(resolve, retryInterval));
+                    continue;
+                }
+                
+                // 按钮可用，执行点击
+                console.log('按钮可用，执行点击');
+                tradeButton.click();
+                
+                console.log(`已点击${request.direction === 'BUY' ? '买入' : '卖出'}BTC按钮`);
+                
+                // 模拟交易成功
+                setTimeout(() => {
+                    resolve({
+                        success: true,
+                        orderId: `VARIATIONAL_${Date.now()}`,
+                        message: `Variational Omni${request.direction === 'BUY' ? '买入' : '卖出'}订单执行成功`,
+                        details: {
+                            side: request.side,
+                            amount: request.amount,
+                            symbol: request.symbol,
+                            direction: request.direction
+                        }
+                    });
+                }, 1000);
+                
+                return; // 成功，退出循环
+                
+            } catch (error) {
+                if (attempt === maxRetries) {
+                    reject(error);
+                    return;
+                }
+                console.log(`第${attempt}次尝试失败: ${error.message}，等待${retryInterval}ms后重试`);
+                await new Promise(resolve => setTimeout(resolve, retryInterval));
+            }
+        }
+    }
+
+    // 等待按钮可用并点击 (兼容旧版本)
     async waitForButtonAvailable(request, resolve, reject) {
         const maxRetries = 10; // 最大重试次数
         const retryInterval = 500; // 重试间隔(毫秒)
@@ -401,6 +544,7 @@ class VariationalTrader {
             }
         });
     }
+
 
     // 获取当前价格
     async getCurrentPrice(request, sendResponse) {
