@@ -1,42 +1,47 @@
-// 交易助手主逻辑
+// 交易助手主逻辑 - 与后台脚本通信
 class TradingAssistant {
     constructor() {
         this.currentExchange = 'variational';
         this.isProcessing = false;
-        this.isAutoTrading = false;
-        this.isBatchOpening = false;
-        this.tradeInterval = null;
-        this.batchInterval = null;
-        this.tradeCount = 0;
-        this.batchCompleted = 0;
-        this.batchTotal = 0;
+        this.tradingState = {
+            isAutoTrading: false,
+            isBatchOpening: false,
+            tradeCount: 0,
+            batchCompleted: 0,
+            batchTotal: 0
+        };
         this.init();
     }
 
     init() {
-        this.loadSettings();
+        this.loadTradingState();
         this.bindEvents();
-        this.updateTradeInfo();
     }
 
-    // 加载设置
-    loadSettings() {
-        chrome.storage.local.get([
-            'tradeCount'
-        ], (result) => {
-            if (result.tradeCount !== undefined) {
-                this.tradeCount = result.tradeCount;
-                this.updateTradeInfo();
+    // 加载交易状态
+    async loadTradingState() {
+        try {
+            const response = await chrome.runtime.sendMessage({
+                action: 'getTradingState'
+            });
+            
+            if (response.success) {
+                this.tradingState = response.state;
+                this.updateUI();
             }
-        });
+        } catch (error) {
+            console.error('加载交易状态失败:', error);
+        }
     }
 
-    // 保存设置
-    saveSettings() {
-        const settings = {
-            tradeCount: this.tradeCount
-        };
-        chrome.storage.local.set(settings);
+    // 更新UI
+    updateUI() {
+        this.updateAutoTradeButton();
+        this.updateBatchOpenButton();
+        this.updateTradeStatus(this.tradingState.isAutoTrading ? '自动交易运行中...' : '自动交易已停止');
+        this.updateBatchStatus(this.tradingState.isBatchOpening ? '批量开单运行中...' : '批量开单已停止');
+        this.updateTradeInfo();
+        this.updateBatchProgress();
     }
 
     // 绑定事件
@@ -58,30 +63,12 @@ class TradingAssistant {
         console.log(`${type}: ${message}`);
     }
 
-    // 播放声音
-    playSound(type) {
-        const audio = new Audio();
-        audio.volume = 0.3;
-        
-        if (type === 'success') {
-            // 成功声音
-            audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-        } else {
-            // 错误声音
-            audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-        }
-        
-        audio.play().catch(() => {
-            // 忽略音频播放错误
-        });
-    }
-
     // 切换自动交易
-    toggleAutoTrade() {
-        if (this.isAutoTrading) {
-            this.stopAutoTrade();
+    async toggleAutoTrade() {
+        if (this.tradingState.isAutoTrading) {
+            await this.stopAutoTrade();
         } else {
-            this.startAutoTrade();
+            await this.startAutoTrade();
         }
     }
 
@@ -94,178 +81,52 @@ class TradingAssistant {
             return;
         }
 
-        // 检查content script是否加载
         try {
-            await this.checkContentScript();
-        } catch (error) {
-            this.showMessage(`无法启动自动交易: ${error.message}`, 'error');
-            return;
-        }
-
-        this.isAutoTrading = true;
-        this.updateAutoTradeButton();
-        this.updateTradeStatus('自动交易运行中...');
-        
-        // 开始交易循环
-        this.executeAutoTradeCycle();
-        
-        this.showMessage('自动交易已开始', 'success');
-    }
-
-    // 检查content script状态
-    async checkContentScript() {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        
-        if (!tab) {
-            throw new Error('未找到活动标签页');
-        }
-
-        if (!tab.url.includes('variational.io')) {
-            throw new Error('请确保在Variational Omni交易页面 (omni.variational.io)');
-        }
-
-        try {
-            // 发送ping消息检查content script是否响应
-            const response = await chrome.tabs.sendMessage(tab.id, {
-                action: 'ping'
+            const response = await chrome.runtime.sendMessage({
+                action: 'startAutoTrade',
+                amount: amount
             });
             
-            if (!response || !response.success) {
-                throw new Error('交易助手未正确加载，请刷新页面');
+            if (response.success) {
+                this.tradingState.isAutoTrading = true;
+                this.tradingState.autoTradeAmount = amount;
+                this.updateUI();
+                this.showMessage('自动交易已开始', 'success');
+            } else {
+                this.showMessage('启动自动交易失败', 'error');
             }
-            
-            return true;
         } catch (error) {
-            if (error.message.includes('Could not establish connection') || 
-                error.message.includes('Receiving end does not exist')) {
-                throw new Error('交易助手未加载。请刷新Variational Omni页面后重试。');
-            }
-            throw error;
+            console.error('启动自动交易错误:', error);
+            this.showMessage(`启动自动交易失败: ${error.message}`, 'error');
         }
     }
 
     // 停止自动交易
-    stopAutoTrade() {
-        this.isAutoTrading = false;
-        if (this.tradeInterval) {
-            clearTimeout(this.tradeInterval);
-            this.tradeInterval = null;
-        }
-        this.updateAutoTradeButton();
-        this.updateTradeStatus('自动交易已停止');
-        this.showMessage('自动交易已停止', 'info');
-    }
-
-    // 执行自动交易循环
-    async executeAutoTradeCycle() {
-        if (!this.isAutoTrading) return;
-
+    async stopAutoTrade() {
         try {
-            // 执行开仓
-            await this.executeAutoTradeOrder('open');
-            
-            // 等待2秒后执行平仓
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // 执行平仓
-            await this.executeAutoTradeOrder('close');
-            
-            // 增加交易计数
-            this.tradeCount++;
-            this.updateTradeInfo();
-            this.saveSettings();
-            
-            // 等待10秒后开始下一轮
-            this.updateTradeStatus(`等待下一轮交易... (${this.tradeCount}次)`);
-            this.tradeInterval = setTimeout(() => {
-                this.executeAutoTradeCycle();
-            }, 10000); // 10秒等待
-            
-        } catch (error) {
-            console.error('自动交易循环错误:', error);
-            this.updateTradeStatus('自动交易出错');
-            this.showMessage(`自动交易出错: ${error.message}`, 'error');
-            
-            // 出错后等待10秒重试
-            this.tradeInterval = setTimeout(() => {
-                this.executeAutoTradeCycle();
-            }, 10000);
-        }
-    }
-
-    // 执行自动交易订单
-    async executeAutoTradeOrder(type) {
-        const amount = document.getElementById('autoTradeAmount').value;
-        const side = type === 'open' ? 'BUY' : 'SELL';
-
-        this.updateTradeStatus(`${type === 'open' ? '开仓' : '平仓'}中...`);
-
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        
-        if (!tab) {
-            throw new Error('未找到活动标签页。请确保在Variational Omni页面。');
-        }
-
-        // 检查是否在正确的页面
-        if (!tab.url.includes('variational.io')) {
-            throw new Error('请确保在Variational Omni交易页面 (omni.variational.io)');
-        }
-
-        try {
-            const response = await chrome.tabs.sendMessage(tab.id, {
-                action: 'executeMarketOrder',
-                exchange: this.currentExchange,
-                symbol: 'BTC',
-                type: type,
-                side: side,
-                amount: amount
+            const response = await chrome.runtime.sendMessage({
+                action: 'stopAutoTrade'
             });
-
-            if (!response.success) {
-                throw new Error(response.error || `${type === 'open' ? '开仓' : '平仓'}失败`);
-            }
-
-            return response;
-        } catch (error) {
-            // 处理连接错误
-            if (error.message.includes('Could not establish connection') || 
-                error.message.includes('Receiving end does not exist')) {
-                
-                console.error('Content script连接失败:', error);
-                throw new Error(`无法连接到交易页面。请确保：
-1. 在Variational Omni页面 (omni.variational.io)
-2. 页面已完全加载
-3. 刷新页面后重试`);
-            }
             
-            // 重新抛出其他错误
-            throw error;
+            if (response.success) {
+                this.tradingState.isAutoTrading = false;
+                this.updateUI();
+                this.showMessage('自动交易已停止', 'info');
+            } else {
+                this.showMessage('停止自动交易失败', 'error');
+            }
+        } catch (error) {
+            console.error('停止自动交易错误:', error);
+            this.showMessage(`停止自动交易失败: ${error.message}`, 'error');
         }
-    }
-
-    // 更新自动交易按钮
-    updateAutoTradeButton() {
-        const button = document.getElementById('autoTradeToggle');
-        if (this.isAutoTrading) {
-            button.textContent = '停止自动交易';
-            button.className = 'btn btn-stop';
-        } else {
-            button.textContent = '开始自动交易';
-            button.className = 'btn btn-success';
-        }
-    }
-
-    // 更新交易状态
-    updateTradeStatus(message) {
-        document.getElementById('tradeStatus').textContent = `状态: ${message}`;
     }
 
     // 切换批量开单
-    toggleBatchOpen() {
-        if (this.isBatchOpening) {
-            this.stopBatchOpen();
+    async toggleBatchOpen() {
+        if (this.tradingState.isBatchOpening) {
+            await this.stopBatchOpen();
         } else {
-            this.startBatchOpen();
+            await this.startBatchOpen();
         }
     }
 
@@ -290,131 +151,72 @@ class TradingAssistant {
             return;
         }
 
-        // 检查content script是否加载
         try {
-            await this.checkContentScript();
+            const response = await chrome.runtime.sendMessage({
+                action: 'startBatchOpen',
+                direction: direction,
+                amount: amount,
+                count: parseInt(count)
+            });
+            
+            if (response.success) {
+                this.tradingState.isBatchOpening = true;
+                this.tradingState.batchDirection = direction;
+                this.tradingState.batchAmount = amount;
+                this.tradingState.batchTotal = parseInt(count);
+                this.tradingState.batchCompleted = 0;
+                this.updateUI();
+                this.showMessage('批量开单已开始', 'success');
+            } else {
+                this.showMessage('启动批量开单失败', 'error');
+            }
         } catch (error) {
-            this.showMessage(`无法启动批量开单: ${error.message}`, 'error');
-            return;
+            console.error('启动批量开单错误:', error);
+            this.showMessage(`启动批量开单失败: ${error.message}`, 'error');
         }
-
-        this.isBatchOpening = true;
-        this.batchCompleted = 0;
-        this.batchTotal = parseInt(count);
-        this.updateBatchOpenButton();
-        this.updateBatchStatus('批量开单运行中...');
-        this.updateBatchProgress();
-        
-        // 开始批量开单循环
-        this.executeBatchOpenCycle(direction);
-        
-        this.showMessage('批量开单已开始', 'success');
     }
 
     // 停止批量开单
-    stopBatchOpen() {
-        this.isBatchOpening = false;
-        if (this.batchInterval) {
-            clearTimeout(this.batchInterval);
-            this.batchInterval = null;
-        }
-        this.updateBatchOpenButton();
-        this.updateBatchStatus('批量开单已停止');
-        this.showMessage('批量开单已停止', 'info');
-    }
-
-    // 执行批量开单循环
-    async executeBatchOpenCycle(direction) {
-        if (!this.isBatchOpening) return;
-
+    async stopBatchOpen() {
         try {
-            // 执行开仓
-            await this.executeBatchOpenOrder(direction);
-            
-            // 增加完成计数
-            this.batchCompleted++;
-            this.updateBatchProgress();
-            
-            // 检查是否完成所有开单
-            if (this.batchCompleted >= this.batchTotal) {
-                this.updateBatchStatus('批量开单已完成');
-                this.showMessage(`批量开单完成: ${this.batchCompleted}/${this.batchTotal}`, 'success');
-                this.stopBatchOpen();
-                return;
-            }
-            
-            // 等待2秒后开始下一单
-            this.updateBatchStatus(`等待下一单... (${this.batchCompleted}/${this.batchTotal})`);
-            this.batchInterval = setTimeout(() => {
-                this.executeBatchOpenCycle(direction);
-            }, 2000); // 2秒等待
-            
-        } catch (error) {
-            console.error('批量开单循环错误:', error);
-            this.updateBatchStatus('批量开单出错');
-            this.showMessage(`批量开单出错: ${error.message}`, 'error');
-            
-            // 出错后等待2秒重试
-            this.batchInterval = setTimeout(() => {
-                this.executeBatchOpenCycle(direction);
-            }, 2000);
-        }
-    }
-
-    // 执行批量开单订单
-    async executeBatchOpenOrder(direction) {
-        const amount = document.getElementById('batchAmount').value;
-
-        this.updateBatchStatus(`开仓中... (${this.batchCompleted + 1}/${this.batchTotal})`);
-
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        
-        if (!tab) {
-            throw new Error('未找到活动标签页。请确保在Variational Omni页面。');
-        }
-
-        // 检查是否在正确的页面
-        if (!tab.url.includes('variational.io')) {
-            throw new Error('请确保在Variational Omni交易页面 (omni.variational.io)');
-        }
-
-        try {
-            const response = await chrome.tabs.sendMessage(tab.id, {
-                action: 'executeMarketOrder',
-                exchange: this.currentExchange,
-                symbol: 'BTC',
-                type: 'open',
-                side: direction,
-                amount: amount,
-                direction: direction
+            const response = await chrome.runtime.sendMessage({
+                action: 'stopBatchOpen'
             });
-
-            if (!response.success) {
-                throw new Error(response.error || '开仓失败');
-            }
-
-            return response;
-        } catch (error) {
-            // 处理连接错误
-            if (error.message.includes('Could not establish connection') || 
-                error.message.includes('Receiving end does not exist')) {
-                
-                console.error('Content script连接失败:', error);
-                throw new Error(`无法连接到交易页面。请确保：
-1. 在Variational Omni页面 (omni.variational.io)
-2. 页面已完全加载
-3. 刷新页面后重试`);
-            }
             
-            // 重新抛出其他错误
-            throw error;
+            if (response.success) {
+                this.tradingState.isBatchOpening = false;
+                this.updateUI();
+                this.showMessage('批量开单已停止', 'info');
+            } else {
+                this.showMessage('停止批量开单失败', 'error');
+            }
+        } catch (error) {
+            console.error('停止批量开单错误:', error);
+            this.showMessage(`停止批量开单失败: ${error.message}`, 'error');
         }
+    }
+
+    // 更新自动交易按钮
+    updateAutoTradeButton() {
+        const button = document.getElementById('autoTradeToggle');
+        if (this.tradingState.isAutoTrading) {
+            button.textContent = '停止自动交易';
+            button.className = 'btn btn-stop';
+        } else {
+            button.textContent = '开始自动交易';
+            button.className = 'btn btn-success';
+        }
+    }
+
+    // 更新交易状态
+    updateTradeStatus(message) {
+        document.getElementById('tradeStatus').textContent = `状态: ${message}`;
     }
 
     // 更新批量开单按钮
     updateBatchOpenButton() {
         const button = document.getElementById('batchOpenToggle');
-        if (this.isBatchOpening) {
+        if (this.tradingState.isBatchOpening) {
             button.textContent = '停止批量开单';
             button.className = 'btn btn-stop';
         } else {
@@ -430,17 +232,24 @@ class TradingAssistant {
 
     // 更新批量开单进度
     updateBatchProgress() {
-        document.getElementById('batchProgress').textContent = `进度: ${this.batchCompleted}/${this.batchTotal}`;
+        document.getElementById('batchProgress').textContent = `进度: ${this.tradingState.batchCompleted}/${this.tradingState.batchTotal}`;
     }
 
     // 更新交易信息
     updateTradeInfo() {
-        document.getElementById('tradeCount').textContent = `交易次数: ${this.tradeCount}`;
+        document.getElementById('tradeCount').textContent = `交易次数: ${this.tradingState.tradeCount}`;
     }
 
+    // 定期更新状态
+    startStatusPolling() {
+        setInterval(() => {
+            this.loadTradingState();
+        }, 2000); // 每2秒更新一次状态
+    }
 }
 
 // 初始化交易助手
 document.addEventListener('DOMContentLoaded', () => {
-    new TradingAssistant();
+    const assistant = new TradingAssistant();
+    assistant.startStatusPolling(); // 开始定期更新状态
 });
