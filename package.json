@@ -1,6 +1,6 @@
 {
   "name": "web3-automated-trading-assistant",
-  "version": "1.0.0",
+  "version": "v0.0.1-20251028",
   "description": "浏览器插件 - Web3自动交易助手，支持市价开单和平仓",
   "main": "background.js",
   "scripts": {

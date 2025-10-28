@@ -248,8 +248,21 @@ class TradingAssistant {
     }
 }
 
+// 读取并显示版本号
+async function loadVersion() {
+    try {
+        const response = await fetch(chrome.runtime.getURL('package.json'));
+        const data = await response.json();
+        document.getElementById('versionNumber').textContent = data.version;
+    } catch (error) {
+        console.error('加载版本号失败:', error);
+        document.getElementById('versionNumber').textContent = '未知';
+    }
+}
+
 // 初始化交易助手
 document.addEventListener('DOMContentLoaded', () => {
     const assistant = new TradingAssistant();
     assistant.startStatusPolling(); // 开始定期更新状态
+    loadVersion(); // 加载版本号
 });
